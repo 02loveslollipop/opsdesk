@@ -1,4 +1,5 @@
 import logging
+import time
 from argon2 import PasswordHasher
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -14,30 +15,51 @@ db_url = settings.DATABASE_URL
 if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
     db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
-try:
-    # Hardened pool parameters and timeouts
-    engine = create_engine(
-        db_url,
-        pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=5,
-        pool_timeout=10,
-        pool_recycle=1800,
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    with engine.connect() as conn:
-        pass
-except (OperationalError, Exception) as exc:
-    logger.warning("PostgreSQL connection failed (%s). Falling back to SQLite for local testing.", exc)
-    db_url = "sqlite:///./opsdesk_dev.db"
-    engine = create_engine(
-        db_url,
-        connect_args={"check_same_thread": False},
-        pool_pre_ping=True,
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# SQLAlchemy engine initialization (lazy connection - connects on first query)
+engine = create_engine(
+    db_url,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=5,
+    pool_timeout=10,
+    pool_recycle=1800,
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
+    """Initializes schema and seeds data with retry logic for container startup."""
+    global engine, SessionLocal
+    max_retries = 10
+    retry_delay = 1.5
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            with engine.connect() as conn:
+                logger.info("Database connection established successfully.")
+                break
+        except (OperationalError, Exception) as exc:
+            if attempt < max_retries and "postgresql" in str(engine.url):
+                logger.warning(
+                    "Database not ready on attempt %d/%d (%s). Retrying in %ss...",
+                    attempt,
+                    max_retries,
+                    exc,
+                    retry_delay,
+                )
+                time.sleep(retry_delay)
+            else:
+                logger.warning(
+                    "PostgreSQL unavailable (%s). Initializing SQLite in-memory fallback.",
+                    exc,
+                )
+                engine = create_engine(
+                    "sqlite:///:memory:",
+                    connect_args={"check_same_thread": False},
+                    pool_pre_ping=True,
+                )
+                SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+                break
+
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
@@ -54,6 +76,7 @@ def init_db():
             t4 = Ticket(title="Audit Log Shipper Failure", description="Logstash shipper disk full on syslog node-03.", owner_id=admin.id, status="closed")
             db.add_all([t1, t2, t3, t4])
             db.commit()
+            logger.info("Database schema and seed records initialized successfully.")
     finally:
         db.close()
 
