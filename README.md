@@ -14,7 +14,7 @@
 
 ## Índice
 
-1. [Arquitectura del Laboratorio](#1-arquitectura-del-laboratorio)
+1. [Arquitectura y Comparativa General](#1-arquitectura-y-comparativa-general)
 2. [Puesta en Marcha Rápida](#2-puesta-en-marcha-rápida)
 3. [Cuentas Preconfiguradas](#3-cuentas-preconfiguradas)
 4. [Estructura de Versiones (Ramas Git)](#4-estructura-de-versiones-ramas-git)
@@ -27,49 +27,44 @@
 
 ---
 
-## 1. Arquitectura del Laboratorio
+## 1. Arquitectura y Comparativa General
 
-**OpsDesk** representa un portal interno de gestión de incidencias de infraestructura desarrollado con **Python 3.13**, **FastAPI**, **Jinja2** y **PostgreSQL**.
+**OpsDesk** es un portal interno desarrollado en **Python 3.13**, **FastAPI**, **Jinja2** y **PostgreSQL**.
 
-### Diagrama General de Arquitectura
+### Diagrama de Flujo: Cadena de Ataque vs Cadena Defensiva
 
 ```mermaid
-graph TD
-    UserClient["Navegador / Cliente Local<br>127.0.0.1:8000"]
-    
-    subgraph Host["Host Local (Entorno Seguro)"]
-        subgraph DockerCompose["Docker Compose (Red Interna: opsdesk_net)"]
-            
-            subgraph ContainerWeb["Contenedor: web (FastAPI 0.115 / Python 3.13)"]
-                MW["Middlewares Defensivos<br>(Cabeceras HTTP & Límite 1MB)"]
-                
-                subgraph AppLogic["Lógica de Aplicación"]
-                    AuthR["/login, /logout<br>(auth.py)"]
-                    SecM["Autenticación JWT & RBAC<br>(security.py)"]
-                    TickR["/dashboard, /tickets<br>(tickets.py)"]
-                    DiagR["/admin/diagnostics<br>(diagnostics.py)"]
-                end
-            end
-            
-            subgraph ContainerDB["Contenedor: db (PostgreSQL 16)"]
-                PG["Base de Datos: opsdesk<br>(Tablas: users, tickets)<br>Puerto 5432 NO publicado al host"]
-            end
-        end
+flowchart TD
+    subgraph Ataque["Flujo Vulnerable (01-vulnerable)"]
+        direction TB
+        A1["1. Entrada: admin' --"] --> A2["SQLi anula password"]
+        A2 --> A3["Sesión JWT emitida"]
+        A3 --> A4["Acceso a /admin/diagnostics"]
+        A4 --> A5["Entrada: 127.0.0.1; id"]
+        A5 --> A6["shell=True ejecuta 'id'"]
+        A6 --> A7["Salida: uid=0(root)<br>(Impacto Crítico)"]
     end
 
-    UserClient -->|HTTP 127.0.0.1:8000| MW
-    MW --> AuthR
-    MW --> TickR
-    MW --> DiagR
-    DiagR -.->|require_admin| SecM
-    AuthR -->|Consultas SQL| PG
-    TickR -->|Consultas SQL| PG
+    subgraph Defensa["Flujo Remediado (02-fixed & 03-hardened)"]
+        direction TB
+        D1["1. Entrada: admin' --"] --> D2["Consulta :username parametrizada"]
+        D2 --> D3["401 Unauthorized (Bloqueado)"]
+        
+        D4["2. Token caducado"] --> D5["Valida exp, iss y aud"]
+        D5 --> D6["401 Unauthorized (Bloqueado)"]
+        
+        D7["3. Entrada: 127.0.0.1; id"] --> D8["Regex Allowlist + shell=False"]
+        D8 --> D9["400 Bad Request (Bloqueado)"]
+        
+        D10["4. Contexto de ejecución"] --> D11["USER appuser (UID 10001)<br>read_only: true"]
+        D11 --> D12["Impacto mínimo contenido"]
+    end
 ```
 
 ### Controles de contención del laboratorio:
 - **Enlace a Localhost:** La aplicación web escucha exclusivamente en `127.0.0.1:8000`.
 - **Aislamiento de Base de Datos:** PostgreSQL no publica puertos al host; solo es accesible en la red puente de Docker.
-- **Sin Privilegios Especiales:** No se utiliza `--privileged`, no se monta `/var/run/docker.sock` ni directorios sensibles del sistema anfitrión.
+- **Sin Privilegios Especiales:** No se utiliza `--privileged`, no se monta `/var/run/docker.sock` ni directorios sensibles del host.
 - **Comandos Inocuos:** Las demostraciones de inyección se acotan a comandos de solo lectura como `id`, `whoami` o `pwd`.
 
 ---
@@ -107,36 +102,22 @@ La base de datos se inicializa automáticamente con tres cuentas:
 
 ## 4. Estructura de Versiones (Ramas Git)
 
-El repositorio cuenta con un historial ordenado y tres ramas principales para contrastar los cambios:
+El repositorio cuenta con tres ramas principales para contrastar los cambios:
 
 ```mermaid
-gitGraph
-    commit id: "skeleton"
-    commit id: "vulnerable login"
-    commit id: "jwt auth"
-    commit id: "diagnostics"
-    commit id: "containerize" tag: "01-vulnerable"
-    branch "02-fixed"
-    checkout "02-fixed"
-    commit id: "param SQL"
-    commit id: "validate JWT"
-    commit id: "no shell"
-    commit id: "non-root" tag: "02-fixed"
-    branch "03-hardened"
-    checkout "03-hardened"
-    commit id: "security headers"
-    commit id: "read-only fs"
-    commit id: "healthchecks" tag: "03-hardened"
+flowchart LR
+    V["01-vulnerable<br>(SQLi, JWT débil, RCE, Root)"] --> F["02-fixed<br>(Parametrización, verify_exp, shell=False, non-root)"]
+    F --> H["03-hardened<br>(CSP, read-only FS, no-new-privileges)"]
 ```
 
 ```bash
-# Versión 100% vulnerable:
+# 1. Versión 100% vulnerable:
 git checkout 01-vulnerable
 
-# Versión con correcciones de código:
+# 2. Versión con correcciones de código:
 git checkout 02-fixed
 
-# Versión endurecida con defensa en profundidad:
+# 3. Versión endurecida con defensa en profundidad:
 git checkout 03-hardened
 ```
 
@@ -153,23 +134,16 @@ git diff 02-fixed 03-hardened
 ### Causa raíz
 El formulario de inicio de sesión toma las entradas del usuario (`username` y `password`) y las concatena directamente en una consulta SQL en texto plano mediante un f-string de Python.
 
-### Diagrama de Flujo: Inseguro vs Corregido
+### Diagrama de Flujo: SQL Injection
 
 ```mermaid
-flowchart TD
-    subgraph FlujoInseguro["Flujo Vulnerable: Interpolación de String"]
-        In1["Entrada del usuario:<br>username: admin' --<br>password: x"] --> Interp["Interpolación f-string en auth.py:<br>SELECT id, username, password, role FROM users<br>WHERE username = 'admin' --' AND password = 'x'"]
-        Interp --> SQLParser1["Analizador Léxico SQL:<br>El comentario '--' anula la cláusula AND password"]
-        SQLParser1 --> Exec1["Ejecución en BD:<br>WHERE username = 'admin'"]
-        Exec1 --> Success1["BYPASS EXITOSO<br>Sesión de admin emitida sin conocer contraseña"]
+flowchart LR
+    subgraph Inseguro["Flujo Vulnerable (auth.py)"]
+        A["admin' --"] --> B["f'WHERE user = {u}'"] --> C["Comenta validación de password"] --> D["Login Exitoso como admin"]
     end
-
-    subgraph FlujoSeguro["Flujo Remediado: Consultas Parametrizadas + Argon2"]
-        In2["Entrada del usuario:<br>username: admin' --<br>password: x"] --> ParamQuery["Consulta Precompilada:<br>WHERE username = :username"]
-        ParamQuery --> SQLParser2["El valor viaja en canal de datos separado<br>Se busca literalmente la cadena admin' --"]
-        SQLParser2 --> FoundCheck{"¿Existe usuario con ese nombre exacto?"}
-        FoundCheck -- No --> RejectAuth["HTTP 401 Unauthorized<br>Ataque neutralizado"]
-        FoundCheck -- Sí --> VerifyHash["Verificación de Hash:<br>ph.verify(stored_hash, password)"]
+    
+    subgraph Seguro["Flujo Remediado (auth.py)"]
+        E["admin' --"] --> F[":username parametrizado"] --> G["Busca texto literal en BD"] --> H["401 Unauthorized Bloqueado"]
     end
 ```
 
@@ -196,7 +170,7 @@ def authenticate_user_vulnerable(db: Session, username: str, password: str) -> O
    ```sql
    SELECT id, username, password, role FROM users WHERE username = 'admin' --' AND password = 'x'
    ```
-5. La secuencia `--` comenta el resto de la línea SQL (la cláusula de validación de contraseña).
+5. La secuencia `--` comenta el resto de la línea SQL (la comprobación de contraseña).
 6. El motor devuelve el registro del usuario `admin`, emitiendo una sesión de administrador válida.
 
 ### Cómo se arregla desde el código ([`app/auth.py`](file:///home/zerotwo/security_presentation_example/app/auth.py))
@@ -221,40 +195,23 @@ def authenticate_user_secure(db: Session, username: str, password: str) -> Optio
     return None
 ```
 
-### Por qué funciona la corrección:
-1. **Separación entre código y datos:** Con parámetros (`:username`), el analizador léxico de la base de datos compila la estructura de la consulta antes de enlazar el valor. El valor `admin' --` se busca literalmente como nombre de usuario, sin alterar la lógica de la sentencia.
-2. **Password Hashing Robusto:** No se almacenan contraseñas en texto plano; se utiliza **Argon2id** con sal (*salt*) aleatoria y factor de costo de memoria.
-
 ---
 
 ## 6. Vulnerabilidad 2: Validación Incompleta de JWT
 
 ### Causa raíz
-Tener una firma criptográfica válida en un JWT **no implica** que el token sea aceptable. En la implementación defectuosa, se verifica la firma HMAC pero se desactiva explícitamente la comprobación del tiempo de expiración (`exp`), emisor (`iss`) y audiencia (`aud`).
+Tener una firma criptográfica válida en un JWT **no implica** que el token sea aceptable. En la versión defectuosa se verifica la firma HMAC pero se desactiva explícitamente la comprobación del tiempo de expiración (`exp`), emisor (`iss`) y audiencia (`aud`).
 
-### Diagrama del Pipeline de Validación de JWT
+### Diagrama de Flujo: Validación JWT
 
 ```mermaid
-flowchart TD
-    JWTInput["Token JWT Recibido:<br>Header . Payload . Signature"] --> VerifySig{"1. ¿Firma HMAC válida<br>con SECRET_KEY?"}
-    
-    VerifySig -- No --> BadSig["HTTP 401 Unauthorized<br>Firma inválida o adulterada"]
-    
-    VerifySig -- Sí --> CheckMode{"Modo de Validación"}
-    
-    subgraph VulnerableValidation["Implementación Vulnerable (01-vulnerable)"]
-        CheckMode -->|decode_token_vulnerable| SkipValidation["options: verify_exp=False<br>options: verify_iss=False<br>options: verify_aud=False"]
-        SkipValidation --> AllowExpired["HTTP 200 OK<br>Token de hace años sigue activo"]
+flowchart LR
+    subgraph Inseguro["Flujo Vulnerable (security.py)"]
+        A["Token Expirado"] --> B["Verifica solo firma<br>verify_exp=False"] --> C["200 OK: Sesión Aceptada"]
     end
-    
-    subgraph SecureValidation["Implementación Remediada (02-fixed / 03-hardened)"]
-        CheckMode -->|decode_token_secure| CheckAlg{"2. ¿Algoritmo esperado?<br>HS256 fijado"}
-        CheckAlg -- No --> RejAlg["HTTP 401 Unauthorized<br>Algorithm confusion bloqueado"]
-        CheckAlg -- Sí --> CheckExp{"3. ¿Token vigente?<br>exp > now()"}
-        CheckExp -- No --> RejExp["HTTP 401 Unauthorized<br>Token has expired"]
-        CheckExp -- Sí --> CheckClaims{"4. ¿Claims válidos?<br>iss == 'opsdesk'<br>aud == 'opsdesk-web'"}
-        CheckClaims -- No --> RejClaims["HTTP 401 Unauthorized<br>Issuer o Audience mismatch"]
-        CheckClaims -- Sí --> AllowValid["HTTP 200 OK<br>Sesión autorizada legítima"]
+
+    subgraph Seguro["Flujo Remediado (security.py)"]
+        D["Token Expirado"] --> E["Verifica exp > now()<br>verify_exp=True"] --> F["401 Unauthorized: Rechazado"]
     end
 ```
 
@@ -276,13 +233,13 @@ def decode_token_vulnerable(token: str) -> dict:
 ```
 
 ### Paso a paso de la demostración
-1. Iniciar sesión y observar en el **Dashboard** la tarjeta *JWT Claims Inspector*, donde se visualizan los campos `iss`, `aud`, `sub` y `exp`.
-2. Generar o enviar un token cuya fecha de expiración se sitúe en el pasado (ej. expirado hace horas o años):
+1. Iniciar sesión y observar en el **Dashboard** la tarjeta *JWT Claims Inspector*.
+2. Generar o enviar un token con fecha de expiración en el pasado:
    ```bash
    make demo-jwt
    ```
 3. En la versión vulnerable, el servidor responde con **HTTP 200 OK**, aceptando la sesión caducada.
-4. **Punto pedagógico:** *"Firma válida no equivale a token válido."* Un token filtrado antiguo continuaría funcionando permanentemente.
+4. **Punto pedagógico:** *"Firma válida no equivale a token válido."*
 
 ### Cómo se arregla desde el código ([`app/security.py`](file:///home/zerotwo/security_presentation_example/app/security.py))
 ```python
@@ -304,11 +261,6 @@ def decode_token_secure(token: str) -> dict:
     )
 ```
 
-### Por qué funciona la corrección:
-1. `verify_exp: True`: La librería compara el campo `exp` con el reloj UTC actual (`now`) y rechaza inmediatamente tokens vencidos con `jwt.ExpiredSignatureError` (HTTP 401).
-2. **Fijación de Algoritmo:** Al especificar `algorithms=["HS256"]`, se previene el ataque de cambio de algoritmo (*algorithm confusion attack* o clave pública tratada como clave HMAC).
-3. **Validación de Contexto:** `iss` y `aud` garantizan que el token fue emitido por OpsDesk y para el cliente web específico.
-
 ---
 
 ## 7. Vulnerabilidad 3: Command Injection en Diagnóstico
@@ -316,36 +268,23 @@ def decode_token_secure(token: str) -> dict:
 ### Causa raíz
 En la utilidad de diagnóstico de red (`/admin/diagnostics`), el parámetro ingresado por el usuario se concatena en un string que se entrega a una shell del sistema operativo mediante `subprocess.run(cmd, shell=True)`.
 
-### Diagrama del Mecanismo de Inyección de Comandos
+### Diagrama de Flujo: Command Injection
 
 ```mermaid
-flowchart TD
-    subgraph VulnerableRCE["Ejecución Vulnerable (shell=True)"]
-        CmdInput1["Entrada de usuario:<br>127.0.0.1; id"] --> StrConcat["Concatenación de strings:<br>f'ping -c 1 127.0.0.1; id'"]
-        StrConcat --> ShellInvoke["subprocess.run(cmd, shell=True)<br>Invoca /bin/sh -c 'ping -c 1 127.0.0.1; id'"]
-        ShellInvoke --> ShellSplit["Intérprete /bin/sh procesa el metacaracter ';'<br>Bifurca en 2 comandos independientes"]
-        ShellSplit --> Proc1["Comando 1: ping -c 1 127.0.0.1"]
-        ShellSplit --> Proc2["Comando 2: id"]
-        Proc1 --> Output1["Salida de red ping"]
-        Proc2 --> Output2["Salida de comando del sistema:<br>uid=0(root) gid=0(root)"]
-        Output1 & Output2 --> RenderOutput["RCE COMPLETADO<br>Salida inyectada visible en navegador"]
+flowchart LR
+    subgraph Inseguro["Flujo Vulnerable (diagnostics.py)"]
+        A["127.0.0.1; id"] --> B["f'ping {host}'"] --> C["shell=True (/bin/sh)"] --> D["Ejecuta ping + id en el SO"]
     end
 
-    subgraph SecureExec["Ejecución Segura (shell=False + Allowlist)"]
-        CmdInput2["Entrada de usuario:<br>127.0.0.1; id"] --> Validator{"Validación Allowlist:<br>is_valid_target(target)"}
-        Validator -- Detecta ';'<br>Formato inválido --> RejectCmd["HTTP 400 Bad Request<br>Metacaracteres prohibidos<br>No se invoca ningún subproceso"]
-        Validator -- Entrada válida<br>(ej. 127.0.0.1) --> DirectExec["subprocess.run(['ping', '-c', '1', target], shell=False)<br>Llamada execve directa al binario /bin/ping"]
-        DirectExec --> SafeOutput["Salida exclusiva del binario ping"]
+    subgraph Seguro["Flujo Remediado (diagnostics.py)"]
+        E["127.0.0.1; id"] --> F["Regex Allowlist"] --> G["Detecta ';' inválido"] --> H["400 Bad Request Bloqueado"]
     end
 ```
 
 ### Código Inseguro ([`app/diagnostics.py`](file:///home/zerotwo/security_presentation_example/app/diagnostics.py))
 ```python
 def run_diagnostics_vulnerable(host: str) -> str:
-    # INSEGURO: Los tres ingredientes del fallo:
-    # 1. Entrada de usuario sin sanitizar
-    # 2. Concatenación de string
-    # 3. Invocación de la shell del sistema (shell=True)
+    # INSEGURO: Entrada concatenada ejecutada a través de la shell
     cmd = f"ping -c 1 {host}"
     
     proc = subprocess.run(
@@ -360,145 +299,71 @@ def run_diagnostics_vulnerable(host: str) -> str:
 
 ### Paso a paso de la demostración
 1. Iniciar sesión como administrador (`admin / admin123`).
-2. Ingresar a la consola en `/admin/diagnostics`.
-3. Probar un funcionamiento normal introduciendo `127.0.0.1` y pulsar **Ping**. Se observa la salida estándar de `ping`.
-4. Ingresar una carga con metacaracteres de control de shell (separador de sentencias `;`):
+2. Ingresar a `/admin/diagnostics`.
+3. Probar un ping normal: `127.0.0.1`.
+4. Ingresar una carga con metacaracteres de control de shell:
    ```text
    127.0.0.1; id
    ```
 5. Pulsar **Ping**.
-6. La shell del contenedor ejecuta el ping y secuencialmente ejecuta el comando `id`.
-7. El bloque de salida en la página muestra los datos de usuario del sistema operativo:
+6. La salida en la página muestra los datos de usuario del sistema operativo:
    ```text
    uid=0(root) gid=0(root) groups=0(root)
    ```
 
 ### Cómo se arregla desde el código ([`app/diagnostics.py`](file:///home/zerotwo/security_presentation_example/app/diagnostics.py))
 ```python
-import ipaddress
-import re
-import subprocess
+# SEGURO 1: Allowlist estricta para validar IPs o hostnames RFC 1123
+if not is_valid_target(target):
+    raise ValueError(f"Formato de host o IP inválido: '{target}'. Metacaracteres rechazados.")
 
-# Expresión regular restrictiva para hostnames RFC 1123
-HOSTNAME_REGEX = re.compile(
-    r"^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"
+# SEGURO 2: Ejecución directa sin shell (shell=False) pasando argumentos en lista
+proc = subprocess.run(
+    ["ping", "-c", "1", "-W", "2", target],
+    shell=False,
+    capture_output=True,
+    text=True,
+    timeout=3,
 )
-
-def is_valid_target(target: str) -> bool:
-    """Valida estrictamente que el objetivo sea una IP o hostname válido."""
-    target = target.strip()
-    if not target or len(target) > 253:
-        return False
-    try:
-        ipaddress.ip_address(target)
-        return True
-    except ValueError:
-        pass
-    if HOSTNAME_REGEX.match(target):
-        return True
-    return False
-
-def run_diagnostics_secure(host: str) -> str:
-    target = host.strip()
-    # SEGURO 1: Allowlist / Validación de entrada estricta antes de procesar
-    if not is_valid_target(target):
-        raise ValueError(f"Formato de host o IP inválido: '{target}'. Metacaracteres rechazados.")
-
-    # SEGURO 2: Ejecución directa sin shell (shell=False) pasando los argumentos como lista
-    proc = subprocess.run(
-        ["ping", "-c", "1", "-W", "2", target],
-        shell=False,
-        capture_output=True,
-        text=True,
-        timeout=3,
-    )
-    return proc.stdout if proc.stdout else proc.stderr
 ```
-
-### Por qué funciona la corrección:
-1. **Eliminación de la Shell (`shell=False`):** Al pasar los argumentos como una lista de cadenas (`["ping", "-c", "1", target]`), el sistema operativo invoca directamente la llamada `execve`. Ningún intérprete (`/bin/sh` o `bash`) evalúa caracteres como `;`, `&`, `|`, `` ` `` o `$()`.
-2. **Validación de Formato (Allowlist):** Se rechaza cualquier valor que no sea estrictamente una IP o un nombre de host según el estándar RFC 1123, respondiendo con un error controlado `400 Bad Request`.
 
 ---
 
 ## 8. Vulnerabilidad 4: Proceso de Contenedor Ejecutado como Root
 
 ### Causa raíz
-En el `Dockerfile` inicial no se declara la directiva `USER`. En consecuencia, el proceso Uvicorn/FastAPI corre con el usuario predeterminado de la imagen base: `root` (UID 0).
+En el `Dockerfile` inicial no se declara la directiva `USER`. El proceso corre con el usuario predeterminado de la imagen base: `root` (UID 0).
 
-### Diagrama de Impacto: Root vs Non-Root
+### Diagrama de Flujo: Contenedor Root vs Non-Root
 
 ```mermaid
 flowchart LR
-    subgraph RootExecution["Contenedor Inseguro: Sin directiva USER"]
-        RCE1["Explotación de RCE en código"] --> ProcRoot["Proceso corre como UID 0 (root)"]
-        ProcRoot --> FSWrite["Escritura en /etc, /bin, /app"]
-        ProcRoot --> PkgInstall["Instalación de herramientas maliciosas (apt)"]
-        ProcRoot --> MaxImpact["Radio de Impacto: MÁXIMO<br>Compromiso absoluto del contenedor"]
+    subgraph Inseguro["Dockerfile Vulnerable"]
+        A["Sin directiva USER"] --> B["Proceso corre como root"] --> C["id devuelve uid=0(root)<br>(Control total del contenedor)"]
     end
 
-    subgraph NonRootExecution["Contenedor Remediado: USER appuser (UID 10001)"]
-        RCE2["Intento de ejecución no autorizada"] --> ProcNonRoot["Proceso corre como UID 10001 (appuser)"]
-        ProcNonRoot --> DenyWrite["Kernel deniega modificación de binarios y config"]
-        ProcNonRoot --> DenyInstall["Kernel bloquea instalación de paquetes"]
-        ProcNonRoot --> MinImpact["Radio de Impacto: CONTENIDO<br>Mínimo privilegio previene persistencia"]
+    subgraph Seguro["Dockerfile Remediado"]
+        D["USER appuser"] --> E["Proceso corre con UID 10001"] --> F["id devuelve uid=10001(appuser)<br>(Permisos restringidos)"]
     end
-```
-
-### Código Inseguro ([`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile))
-```dockerfile
-FROM python:3.13-slim
-WORKDIR /app
-# ... instalación de dependencias ...
-COPY . .
-
-# INSEGURO: No existe declaración USER.
-# El proceso se ejecutará con UID 0 (root).
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### Demostración e Impacto
-Cuando el atacante explota el Command Injection de la Escena 3 con el comando `id`, la salida revela:
-```text
-uid=0(root) gid=0(root) groups=0(root)
 ```
 
 > [!IMPORTANT]
 > **Punto Pedagógico Central:**
 > - Docker ejecutándose como root **NO** produce la inyección de comandos.
 > - La inyección de comandos se originó por el defecto de software en Python.
-> - **Sin embargo**, ejecutar el proceso como `root` magnifica el impacto: el atacante tiene control irrestricto sobre los archivos, paquetes y procesos del contenedor.
+> - **Sin embargo**, ejecutar el proceso como `root` magnifica el impacto: el atacante tiene control irrestricto sobre los archivos y procesos del contenedor.
 
 ### Cómo se arregla desde el código ([`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile))
 ```dockerfile
-FROM python:3.13-slim
-WORKDIR /app
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends iputils-ping && \
-    rm -rf /var/lib/apt/lists/*
-
-# SEGURO 1: Creación de usuario y grupo de servicio no privilegiados (UID 10001)
+# SEGURO 1: Creación de usuario y grupo no privilegiados (UID 10001)
 RUN groupadd -g 10001 appgroup && \
     useradd -u 10001 -g appgroup -s /sbin/nologin -d /app -m appuser
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-
-# SEGURO 2: Restricción de permisos y propiedad del código
 RUN chown -R appuser:appgroup /app
 
-# SEGURO 3: Cambio explícito de contexto al usuario no privilegiado
+# SEGURO 2: Cambio explícito de contexto al usuario no privilegiado
 USER appuser
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### Resultado tras la remediación:
-Al ejecutar una consulta de diagnóstico, el sistema corre bajo el contexto del usuario limitado:
-```text
-uid=10001(appuser) gid=10001(appgroup)
 ```
 
 ---
@@ -507,153 +372,74 @@ uid=10001(appuser) gid=10001(appgroup)
 
 La rama **`03-hardened`** añade controles de seguridad complementarios en múltiples capas:
 
-### Diagrama de Capas Concéntricas de Defensa
+### Diagrama de Flujo: Capas de Seguridad
 
 ```mermaid
-graph TD
-    subgraph Capa1["Capa 1: Red y Perímetro"]
-        N1["Puerto PostgreSQL interno (sin host publishing)"]
-        N2["Binding exclusivo a localhost (127.0.0.1:8000)"]
-    end
-
-    subgraph Capa2["Capa 2: Transporte y HTTP"]
-        H1["Cabeceras Defensivas (CSP, X-Frame-Options, HSTS)"]
-        H2["Limitador de Payload (Máx 1MB anti-DoS)"]
-        H3["Supresión de cabecera Server"]
-    end
-
-    subgraph Capa3["Capa 3: Aplicación y Lógica"]
-        A1["Consultas SQL Parametrizadas (:username)"]
-        A2["Hashing seguro con Argon2id"]
-        A3["Validación estricta de claims JWT (exp, iss, aud)"]
-        A4["Control de acceso basado en roles (require_admin)"]
-        A5["Validación de targets con Allowlist y shell=False"]
-    end
-
-    subgraph Capa4["Capa 4: Contenedor y Kernel"]
-        C1["Usuario no privilegiado (appuser UID 10001)"]
-        C2["Sistema de archivos raíz read_only: true"]
-        C3["tmpfs temporal no ejecutable (/tmp:noexec)"]
-        C4["security_opt: no-new-privileges:true"]
-        C5["Capacidades mínimas (cap_drop: ALL + NET_RAW)"]
-    end
-
-    Capa1 --> Capa2
-    Capa2 --> Capa3
-    Capa3 --> Capa4
+flowchart TD
+    Req["Petición HTTP entrante"] --> L1["1. Límite de Tamaño: ¿Menor a 1MB?"]
+    L1 -- No --> R1["413 Request Entity Too Large"]
+    L1 -- Sí --> L2["2. Cabeceras HTTP: CSP, X-Frame-Options, X-Content-Type"]
+    L2 --> L3["3. Autenticación: Consulta SQL Parametrizada + Argon2"]
+    L3 --> L4["4. Autorización: Verificación JWT (exp, iss, aud) + RBAC"]
+    L4 --> L5["5. Diagnóstico: Allowlist de Host + shell=False"]
+    L5 --> L6["6. Contenedor: read_only: true + no-new-privileges + USER appuser"]
 ```
 
 ### 1. Cabeceras HTTP Defensivas ([`app/main.py`](file:///home/zerotwo/security_presentation_example/app/main.py))
-```python
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers["X-Frame-Options"] = "DENY"                    # Mitiga Clickjacking
-        response.headers["X-Content-Type-Options"] = "nosniff"          # Previene MIME-confusion
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self';"
-        )
-        if "server" in response.headers:
-            del response.headers["server"]                              # Oculta huella de tecnología
-        return response
-```
+Inyección de `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` y `Referrer-Policy`.
 
-### 2. Limitación de Carga de Petición (Mitigación DoS)
-Middleware que verifica `Content-Length`. Si una petición supera `1 MB`, se descarta de inmediato con **HTTP 413 Request Entity Too Large**.
+### 2. Limitación de Payload (Anti-DoS)
+Peticiones superiores a 1 MB son rechazadas automáticamente con **HTTP 413**.
 
-### 3. Aislamiento Físico del Contenedor ([`docker-compose.yml`](file:///home/zerotwo/security_presentation_example/docker-compose.yml))
+### 3. Aislamiento del Contenedor ([`docker-compose.yml`](file:///home/zerotwo/security_presentation_example/docker-compose.yml))
 ```yaml
 web:
   read_only: true               # Sistema de archivos raíz de solo lectura
   tmpfs:
-    - /tmp:rw,noexec,nosuid,size=64M  # Directorio temporal no ejecutable
+    - /tmp:rw,noexec,nosuid,size=64M  # Temp no ejecutable
   security_opt:
-    - no-new-privileges:true    # Impide escalada de privilegios mediante binarios setuid
+    - no-new-privileges:true    # Impide escalada de privilegios
   cap_drop:
-    - ALL                       # Elimina todas las Linux Capabilities
+    - ALL                       # Elimina Linux Capabilities
   cap_add:
-    - NET_RAW                   # Añade exclusivamente el permiso indispensable para 'ping'
+    - NET_RAW                   # Mínimo indispensable para 'ping'
 ```
-
-### 4. Manejo Seguro de Errores
-El manejador global captura excepciones no controladas (HTTP 500), registra el *stack trace* completo internamente con un UUID de correlación y devuelve al cliente una pantalla limpia sin fugar detalles de la arquitectura ni rutas del servidor.
 
 ---
 
 ## 10. Guion de Presentación en Vivo (Paso a Paso)
 
-### Diagrama de Secuencia de la Presentación
+### Diagrama de Flujo: Ruta de la Presentación
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Presenter as Presentador
-    participant Browser as Navegador Local
-    participant App as OpsDesk (FastAPI)
-    participant DB as PostgreSQL
-    participant Shell as SO / Contenedor
-
-    Note over Presenter,Shell: ESCENA 1: SQL Injection (Rama: 01-vulnerable)
-    Presenter->>Browser: Login con admin' -- y contraseña arbitraria
-    Browser->>App: POST /login
-    App->>DB: SELECT * WHERE username = 'admin' --' ...
-    DB-->>App: Retorna registro de admin
-    App-->>Browser: Sesión iniciada con JWT de admin (Bypass)
-
-    Note over Presenter,Shell: ESCENA 2: JWT con Validación Incompleta
-    Presenter->>App: make demo-jwt (Token expirado con verify_exp=False)
-    App-->>Presenter: HTTP 200 OK (Token expirado aceptado)
-
-    Note over Presenter,Shell: ESCENA 3 & 4: Command Injection & Root
-    Presenter->>Browser: En /admin/diagnostics envía 127.0.0.1; id
-    Browser->>App: POST /admin/diagnostics
-    App->>Shell: subprocess.run("ping 127.0.0.1; id", shell=True)
-    Shell-->>App: Salida: uid=0(root) gid=0(root)
-    App-->>Browser: Muestra RCE con privilegios de root
-
-    Note over Presenter,Shell: ESCENA 5: Correcciones & Endurecimiento (Ramas: 02-fixed & 03-hardened)
-    Presenter->>App: git checkout 02-fixed && docker compose up
-    Presenter->>Browser: Repite SQLi, JWT expirado y 127.0.0.1; id
-    App-->>Browser: SQLi falla (401), JWT expirado falla (401), Injection falla (400)
-    Note over Presenter,Shell: Contenedor corre como appuser (UID 10001) y rootfs read-only
+flowchart LR
+    E1["Escena 1<br>SQLi en Login"] --> E2["Escena 2<br>JWT Expirado"] --> E3["Escena 3<br>Command Injection"] --> E4["Escena 4<br>Impacto Root"] --> E5["Escena 5<br>Cambio a 02-fixed"]
 ```
 
 ### Paso 1: SQL Injection
-1. Asegurarse de estar en la rama vulnerable:
-   ```bash
-   git checkout 01-vulnerable
-   docker compose down -v && docker compose up -d
-   ```
-2. Abrir `http://127.0.0.1:8000/login`.
-3. Explicar el código de [`app/auth.py`](file:///home/zerotwo/security_presentation_example/app/auth.py).
-4. En el campo usuario escribir `admin' --` y contraseña cualquiera.
-5. Iniciar sesión: El sistema salta la verificación de clave y autentica como `admin`.
+1. En la rama vulnerable (`01-vulnerable`), abrir `http://127.0.0.1:8000/login`.
+2. En el campo usuario escribir `admin' --` y contraseña cualquiera.
+3. El sistema autentica directamente como `admin` por el comentario `--`.
 
 ### Paso 2: Validación Incorrecta de JWT
 1. En `/dashboard`, señalar el visor interactivo de claims del JWT.
-2. Mostrar en [`app/security.py`](file:///home/zerotwo/security_presentation_example/app/security.py) la opción `options={"verify_exp": False}`.
-3. Ejecutar la prueba de token caducado:
+2. Ejecutar la prueba de token caducado:
    ```bash
    make demo-jwt
    ```
-4. El servidor acepta el token con código **200 OK**, evidenciando que verificar la firma no basta.
+3. El servidor acepta el token con código **200 OK**, demostrando que `verify_exp=False` es inseguro.
 
 ### Paso 3: Command Injection
 1. Acceder a `/admin/diagnostics`.
-2. Probar un ping normal a `127.0.0.1`.
-3. Mostrar en [`app/diagnostics.py`](file:///home/zerotwo/security_presentation_example/app/diagnostics.py) la construcción del comando con `shell=True`.
-4. Introducir `127.0.0.1; id` y pulsar **Ping**.
-5. Se muestra la salida del comando del sistema dentro de la interfaz web.
+2. Introducir `127.0.0.1; id` y pulsar **Ping**.
+3. Se muestra la salida del comando del sistema operativo en el navegador.
 
 ### Paso 4: Impacto del Proceso como Root
 1. Resaltar la línea `uid=0(root)` obtenida en el paso anterior.
-2. Mostrar el [`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile) sin `USER`.
-3. Explicar a la audiencia: *El contenedor en root no causó el RCE, pero amplificó enormemente el impacto del fallo.*
+2. Mostrar el [`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile) sin directiva `USER`.
 
 ### Paso 5: Cambio a la Versión Corregida
-1. Cambiar a la rama con las correcciones:
+1. Cambiar a la rama corregida:
    ```bash
    git checkout 02-fixed
    docker compose down -v && docker compose up -d
@@ -663,13 +449,12 @@ sequenceDiagram
    - `make demo-jwt` &rarr; **401 Unauthorized** (token caducado rechazado).
    - `127.0.0.1; id` en diagnósticos &rarr; **400 Bad Request** (validación de host y `shell=False`).
    - El contenedor corre con UID `10001(appuser)`.
-3. Finalmente, enseñar [`app/main.py`](file:///home/zerotwo/security_presentation_example/app/main.py) en `03-hardened` para mostrar cabeceras de seguridad y sistema de archivos `read_only`.
 
 ---
 
 ## 🧪 Pruebas Automatizadas
 
-El proyecto incluye 22 pruebas automatizadas con `pytest` que sirven como especificación ejecutable de las vulnerabilidades y sus mitigaciones:
+El proyecto incluye 22 pruebas automatizadas con `pytest`:
 
 ```bash
 pytest -v tests/
