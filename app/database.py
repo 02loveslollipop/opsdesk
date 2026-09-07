@@ -6,7 +6,7 @@ from sqlalchemy.exc import OperationalError
 from app.config import settings
 from app.models import Base, User, Ticket
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("opsdesk.db")
 ph = PasswordHasher()
 
 # Handle connection string dialect compatibility
@@ -15,14 +15,26 @@ if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
     db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
 try:
-    engine = create_engine(db_url, pool_pre_ping=True)
+    # Hardened pool parameters and timeouts
+    engine = create_engine(
+        db_url,
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=5,
+        pool_timeout=10,
+        pool_recycle=1800,
+    )
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     with engine.connect() as conn:
         pass
 except (OperationalError, Exception) as exc:
-    logger.warning("PostgreSQL connection failed (%s). Falling back to SQLite for local tests.", exc)
+    logger.warning("PostgreSQL connection failed (%s). Falling back to SQLite for local testing.", exc)
     db_url = "sqlite:///./opsdesk_dev.db"
-    engine = create_engine(db_url, connect_args={"check_same_thread": False})
+    engine = create_engine(
+        db_url,
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=True,
+    )
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():

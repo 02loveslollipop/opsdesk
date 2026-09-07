@@ -9,7 +9,13 @@ services:
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - opsdesk_pgdata:/var/lib/postgresql/data
-    # Security constraint: PostgreSQL port is NOT exposed to the host
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsdesk -d opsdesk"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    # Security constraint: Database port is never published to host
     networks:
       - opsdesk_net
 
@@ -20,14 +26,32 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://opsdesk:opsdesk123@db:5432/opsdesk
-      JWT_SECRET: opsdesk-insecure-presentation-secret-key-2026
+      JWT_SECRET: opsdesk-insecure-presentation-secret-key-2026-minimum-32-chars-ok
+      ENVIRONMENT: demonstration
       HOST: 0.0.0.0
       PORT: 8000
     ports:
       # Security constraint: Bound strictly to localhost (127.0.0.1)
       - "127.0.0.1:8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    # Defense-in-Depth Container Hardening
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - opsdesk_net
 

@@ -1,0 +1,14 @@
+.git
+.gitignore
+__pycache__
+*.py[cod]
+*$py.class
+*.db
+.pytest_cache
+.coverage
+htmlcov
+.env
+tests
+Dockerfile*
+README.md
+Makefile

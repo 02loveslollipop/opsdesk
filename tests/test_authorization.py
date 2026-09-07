@@ -34,3 +34,32 @@ def test_dockerfile_runs_as_non_root():
     assert len(user_lines) == 1, "Dockerfile must declare exactly one USER directive"
     assert "appuser" in user_lines[0], f"USER directive should specify unprivileged user 'appuser', found: {user_lines[0]}"
     assert "10001" in content, "Dockerfile should assign non-root UID 10001 to appuser"
+
+def test_security_headers_present(client):
+    """
+    Verifies that defense-in-depth HTTP security headers are injected
+    on all HTTP responses.
+    """
+    response = client.get("/login")
+    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert "strict-origin" in response.headers.get("Referrer-Policy", "")
+    assert "default-src 'self'" in response.headers.get("Content-Security-Policy", "")
+    assert "server" not in response.headers
+
+def test_healthcheck_endpoint(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
+
+def test_oversized_payload_rejected_with_413(client):
+    """
+    Verifies that request bodies exceeding the maximum limit are rejected with 413.
+    """
+    large_payload = "a" * (1024 * 1024 + 100)
+    response = client.post(
+        "/login",
+        content=large_payload,
+        headers={"Content-Length": str(len(large_payload)), "Content-Type": "application/x-www-form-urlencoded"}
+    )
+    assert response.status_code == 413
