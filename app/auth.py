@@ -1,6 +1,6 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, Form, Request, status, HTTPException
+from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
@@ -26,13 +26,8 @@ def authenticate_user_vulnerable(db: Session, username: str, password: str) -> O
       Resulting SQL:
         SELECT id, username, password, role FROM users WHERE username = 'admin' --' AND password = '...'
     """
-    raw_query = f"""
-    SELECT id, username, password, role
-    FROM users
-    WHERE username = '{username}'
-    AND password = '{password}'
-    """
-    logger.info("Executing vulnerable SQL query: %s", raw_query.strip())
+    raw_query = f"SELECT id, username, password, role FROM users WHERE username = '{username}' AND password = '{password}'"
+    logger.info("Executing vulnerable SQL query: %s", raw_query)
     
     try:
         result = db.execute(text(raw_query)).fetchone()
@@ -52,7 +47,7 @@ authenticate_user = authenticate_user_vulnerable
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 @router.post("/login")
 def login_submit(
@@ -77,8 +72,9 @@ def login_submit(
                 content={"detail": "Invalid username or password"}
             )
         return templates.TemplateResponse(
+            request,
             "login.html",
-            {"request": request, "error": "Invalid username or password"}
+            {"error": "Invalid username or password"}
         )
 
     # Generate JWT access token

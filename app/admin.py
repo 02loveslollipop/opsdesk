@@ -19,9 +19,9 @@ def admin_panel_view(
     require_admin(current_user)
     users = db.query(User).all()
     return templates.TemplateResponse(
+        request,
         "admin.html",
         {
-            "request": request,
             "user": current_user,
             "users": users,
         },
@@ -39,8 +39,9 @@ def admin_users_view(
     
     if "text/html" in request.headers.get("accept", ""):
         return templates.TemplateResponse(
+            request,
             "admin.html",
-            {"request": request, "user": current_user, "users": users},
+            {"user": current_user, "users": users},
         )
     return {"users": user_list}
 
@@ -51,9 +52,9 @@ def admin_diagnostics_page(
 ):
     require_admin(current_user)
     return templates.TemplateResponse(
+        request,
         "diagnostics.html",
         {
-            "request": request,
             "user": current_user,
             "output": None,
             "host": "127.0.0.1",
@@ -83,9 +84,9 @@ def admin_diagnostics_run(
                 content={"detail": str(val_err)}
             )
         return templates.TemplateResponse(
+            request,
             "diagnostics.html",
             {
-                "request": request,
                 "user": current_user,
                 "output": None,
                 "host": host,
@@ -98,9 +99,9 @@ def admin_diagnostics_run(
         return {"host": host, "output": output}
 
     return templates.TemplateResponse(
+        request,
         "diagnostics.html",
         {
-            "request": request,
             "user": current_user,
             "output": output,
             "host": host,
