@@ -1,4 +1,4 @@
--- OpsDesk Database Initialization Script
+-- OpsDesk Database Initialization Script (Fixed / Secure Version)
 
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -15,11 +15,14 @@ CREATE TABLE IF NOT EXISTS tickets (
     status VARCHAR(50) NOT NULL DEFAULT 'open'
 );
 
--- Seed users (vulnerable initial version stores plain text passwords)
+-- Seed users with secure Argon2 password hashes
+-- alice / alice123
+-- bob   / bob123
+-- admin / admin123
 INSERT INTO users (username, password, role) VALUES
-('alice', 'alice123', 'user'),
-('bob', 'bob123', 'user'),
-('admin', 'admin123', 'admin')
+('alice', '$argon2id$v=19$m=65536,t=3,p=4$3kxrWBkGxEQ7hJ7e9Hu0Kw$9TltCpDoInpvTKBTFDP+6nnbVdDetdG7Iawl2izk/h4', 'user'),
+('bob', '$argon2id$v=19$m=65536,t=3,p=4$KR/Ez4Q3jy1Sx50uLQQ/iA$5duqQHGr+j/R3dy/Szd345bQTcq3m5ir1pg6TXD1lKs', 'user'),
+('admin', '$argon2id$v=19$m=65536,t=3,p=4$NmIvcmvYXkNpnWO5ULSrOA$K0zu2C0r6ptxBDn+n1pFCIcLQKoHxFV3ZjGWvV9j938', 'admin')
 ON CONFLICT (username) DO NOTHING;
 
 -- Seed initial support tickets

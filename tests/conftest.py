@@ -1,4 +1,5 @@
 import pytest
+from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -8,6 +9,8 @@ from app.main import app
 from app.database import get_db
 from app.models import Base, User, Ticket
 from app.security import create_access_token
+
+ph = PasswordHasher()
 
 # Use isolated in-memory SQLite database for unit and integration testing
 TEST_DB_URL = "sqlite:///:memory:"
@@ -23,10 +26,10 @@ def db_session():
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
     
-    # Populate test seeds
-    alice = User(username="alice", password="alice123", role="user")
-    bob = User(username="bob", password="bob123", role="user")
-    admin = User(username="admin", password="admin123", role="admin")
+    # Populate test seeds with Argon2 hashed passwords
+    alice = User(username="alice", password=ph.hash("alice123"), role="user")
+    bob = User(username="bob", password=ph.hash("bob123"), role="user")
+    admin = User(username="admin", password=ph.hash("admin123"), role="admin")
     session.add_all([alice, bob, admin])
     session.commit()
 

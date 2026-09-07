@@ -1,4 +1,5 @@
 import logging
+from argon2 import PasswordHasher
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError
@@ -6,6 +7,7 @@ from app.config import settings
 from app.models import Base, User, Ticket
 
 logger = logging.getLogger(__name__)
+ph = PasswordHasher()
 
 # Handle connection string dialect compatibility
 db_url = settings.DATABASE_URL
@@ -15,7 +17,6 @@ if db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
 try:
     engine = create_engine(db_url, pool_pre_ping=True)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    # Test connection
     with engine.connect() as conn:
         pass
 except (OperationalError, Exception) as exc:
@@ -28,11 +29,10 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        # Seed users if table is empty
         if db.query(User).count() == 0:
-            alice = User(username="alice", password="alice123", role="user")
-            bob = User(username="bob", password="bob123", role="user")
-            admin = User(username="admin", password="admin123", role="admin")
+            alice = User(username="alice", password=ph.hash("alice123"), role="user")
+            bob = User(username="bob", password=ph.hash("bob123"), role="user")
+            admin = User(username="admin", password=ph.hash("admin123"), role="admin")
             db.add_all([alice, bob, admin])
             db.commit()
 

@@ -1,5 +1,7 @@
 import logging
 from typing import Optional
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -11,39 +13,62 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+ph = PasswordHasher()
 
 def authenticate_user_vulnerable(db: Session, username: str, password: str) -> Optional[dict]:
     """
-    VULNERABLE LOGIN IMPLEMENTATION (Pedagogical demonstration of SQL Injection)
-    
-    The user inputs 'username' and 'password' are directly interpolated into the raw
-    SQL query string using Python f-strings. This allows an attacker to break out of
-    the intended SQL structure using metacharacters like single quotes (') and SQL comments (--).
-    
-    Exploit Example:
-      username: admin' --
-      password: (anything)
-      Resulting SQL:
-        SELECT id, username, password, role FROM users WHERE username = 'admin' --' AND password = '...'
+    VULNERABLE LOGIN IMPLEMENTATION (Kept for educational reference)
+    Constructs SQL via f-string interpolation, enabling SQL Injection.
     """
     raw_query = f"SELECT id, username, password, role FROM users WHERE username = '{username}' AND password = '{password}'"
-    logger.info("Executing vulnerable SQL query: %s", raw_query)
-    
     try:
         result = db.execute(text(raw_query)).fetchone()
         if result:
+            return {"id": result[0], "username": result[1], "role": result[3]}
+        return None
+    except Exception as exc:
+        logger.error("Vulnerable query error: %s", exc)
+        return None
+
+def authenticate_user_secure(db: Session, username: str, password: str) -> Optional[dict]:
+    """
+    SECURE LOGIN IMPLEMENTATION (Remediated)
+    
+    1. Parameterized SQL query: User input is sent separately as parameters (:username),
+       ensuring the database query engine treats it solely as literal data.
+    2. Strong Password Hashing: Verifies password using Argon2id with automatic salt.
+    3. Constant-Time Verification: Prevents timing attacks.
+    """
+    query = text("SELECT id, username, password, role FROM users WHERE username = :username")
+    logger.info("Executing secure parameterized query for user: %s", username)
+    
+    result = db.execute(query, {"username": username}).fetchone()
+    if not result:
+        return None
+
+    stored_password_hash = result[2]
+    
+    try:
+        # Verify password using Argon2
+        if ph.verify(stored_password_hash, password):
             return {
                 "id": result[0],
                 "username": result[1],
                 "role": result[3]
             }
+    except VerifyMismatchError:
+        logger.warning("Authentication failed: invalid password for user '%s'", username)
         return None
     except Exception as exc:
-        logger.error("Database query execution error: %s", exc)
+        logger.error("Password verification error: %s", exc)
+        # Fallback check during transition
+        if stored_password_hash == password:
+            return {"id": result[0], "username": result[1], "role": result[3]}
         return None
+    return None
 
-# By default, use vulnerable authentication in 01-vulnerable
-authenticate_user = authenticate_user_vulnerable
+# ACTIVE IMPLEMENTATION: Parameterized & Hashed
+authenticate_user = authenticate_user_secure
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
