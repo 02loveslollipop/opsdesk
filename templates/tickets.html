@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Tickets{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h2 class="card-title" style="margin-bottom: 0;">Operations Support Tickets</h2>
+        <span style="color: var(--text-secondary); font-size: 0.9rem;">Total Tickets: {{ tickets|length }}</span>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Ticket ID</th>
+                <th>Title</th>
+                <th>Description</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in tickets %}
+            <tr>
+                <td><strong>#{{ t.id }}</strong></td>
+                <td>{{ t.title }}</td>
+                <td style="color: var(--text-secondary); max-width: 400px;">{{ t.description }}</td>
+                <td><span class="badge badge-status-{{ t.status }}">{{ t.status }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

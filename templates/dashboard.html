@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h2 class="card-title" style="margin-bottom: 0.25rem;">Welcome back, {{ user.username }}!</h2>
+            <p style="color: var(--text-secondary);">Role: <span class="badge badge-{{ user.role }}">{{ user.role }}</span> &bull; Account ID: {{ user.id or user.sub }}</p>
+        </div>
+        <div>
+            {% if user.role == "admin" %}
+                <a href="/admin" class="btn btn-danger">Admin Console &rarr;</a>
+            {% endif %}
+            <a href="/tickets" class="btn btn-primary">View Tickets</a>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+    <div class="card">
+        <h3 class="card-title">Recent Tickets</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tickets %}
+                <tr>
+                    <td>#{{ t.id }}</td>
+                    <td><strong>{{ t.title }}</strong></td>
+                    <td><span class="badge badge-status-{{ t.status }}">{{ t.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">JWT Claims Inspector</h3>
+        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+            Decoded payload from current JWT session cookie:
+        </p>
+        <div class="terminal-box" style="margin-top: 0; padding: 0.75rem;">
+            <pre>{{ token_claims | default(user) }}</pre>
+        </div>
+        <div class="hint-box" style="margin-top: 0.75rem;">
+            <strong>JWT Pedagogical Note:</strong><br>
+            The vulnerable version verifies the signature but ignores <code>exp</code> (expiration). An expired token continues to be accepted!
+        </div>
+    </div>
+</div>
+{% endblock %}

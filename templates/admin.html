@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Console{% endblock %}
+
+{% block content %}
+<div class="card" style="border-left: 4px solid var(--accent-red);">
+    <h2 class="card-title">OpsDesk Administration Console</h2>
+    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+        Restricted administrative area. Authorization check: <code>require_admin()</code> verified role <strong>admin</strong>.
+    </p>
+    <div style="display: flex; gap: 1rem;">
+        <a href="/admin/diagnostics" class="btn btn-danger">Open Network Diagnostics &rarr;</a>
+        <a href="/admin/users" class="btn btn-secondary">Manage Users</a>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+    <div class="card">
+        <h3 class="card-title">Managed Users</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u.id }}</td>
+                    <td><strong>{{ u.username }}</strong></td>
+                    <td><span class="badge badge-{{ u.role }}">{{ u.role }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Recent System Audit Events</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Event</th>
+                    <th>Actor</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>2026-09-07 00:45</td>
+                    <td>User session created</td>
+                    <td>admin</td>
+                </tr>
+                <tr>
+                    <td>2026-09-07 00:32</td>
+                    <td>Diagnostics ping executed</td>
+                    <td>admin</td>
+                </tr>
+                <tr>
+                    <td>2026-09-07 00:15</td>
+                    <td>Ticket #4 status closed</td>
+                    <td>admin</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

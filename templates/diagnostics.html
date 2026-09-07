@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Network Diagnostics{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+            <h2 class="card-title" style="margin-bottom: 0.25rem;">Network Diagnostics</h2>
+            <p style="color: var(--text-secondary); font-size: 0.9rem;">
+                Connectivity testing utility. Ping an internal or external host.
+            </p>
+        </div>
+        <a href="/admin" class="btn btn-secondary">&larr; Back to Admin</a>
+    </div>
+
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form action="/admin/diagnostics" method="POST" style="margin-top: 1rem;">
+        <div class="form-group">
+            <label for="host">Host or IP</label>
+            <div style="display: flex; gap: 0.75rem;">
+                <input type="text" id="host" name="host" class="form-control" value="{{ host or '127.0.0.1' }}" required placeholder="e.g. 127.0.0.1">
+                <button type="submit" class="btn btn-primary" style="white-space: nowrap;">Ping</button>
+            </div>
+        </div>
+    </form>
+
+    {% if output %}
+        <div style="margin-top: 1.5rem;">
+            <label style="font-size: 0.875rem; font-weight: 500; color: var(--text-secondary);">Output:</label>
+            <div class="terminal-box">
+                <pre>-------------------------
+{{ output }}
+-------------------------</pre>
+            </div>
+        </div>
+    {% endif %}
+
+
+</div>
+{% endblock %}
