@@ -19,11 +19,10 @@ COPY . .
 # Restrict file permissions and ownership to appuser
 RUN chown -R appuser:appgroup /app
 
-# Place mock sensitive flag readable only by root (UID 0) in home directories (~: /app and /root)
+# Place mock sensitive flag readable only by root (UID 0) in application working directory (/app)
 RUN echo "FLAG{defense_in_depth_least_privilege_2026}" > /app/flag.txt && \
-    echo "FLAG{defense_in_depth_least_privilege_2026}" > /root/flag.txt && \
-    chown root:root /app/flag.txt /root/flag.txt && \
-    chmod 0600 /app/flag.txt /root/flag.txt
+    chown root:root /app/flag.txt && \
+    chmod 0600 /app/flag.txt
 
 # Remediated: Run container process as unprivileged user
 USER appuser
