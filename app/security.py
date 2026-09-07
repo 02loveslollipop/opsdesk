@@ -3,7 +3,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import jwt
 from fastapi import HTTPException, Header, Request, status
-from fastapi.responses import RedirectResponse
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -12,7 +11,12 @@ class RedirectToLoginException(Exception):
     """Signal that an unauthenticated browser request should redirect to /login."""
     pass
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    data: dict,
+    expires_delta: Optional[timedelta] = None,
+    issuer: Optional[str] = None,
+    audience: Optional[str] = None,
+) -> str:
     """
     Creates a signed JWT with standard claims:
     - sub: user ID
@@ -30,8 +34,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({
-        "iss": settings.JWT_ISSUER,
-        "aud": settings.JWT_AUDIENCE,
+        "iss": issuer or settings.JWT_ISSUER,
+        "aud": audience or settings.JWT_AUDIENCE,
         "exp": int(expire.timestamp()),
         "iat": int(now.timestamp()),
     })
@@ -40,41 +44,33 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def decode_token_vulnerable(token: str) -> dict:
     """
-    VULNERABLE JWT VALIDATION (Pedagogical demonstration)
-    
-    This function verifies the cryptographic HMAC signature, but deliberately
-    omits expiration ('exp'), audience ('aud'), and issuer ('iss') checks.
-    
-    Flaw:
-      A validly signed token that expired 1 hour, 1 week, or 1 year ago is STILL ACCEPTED!
-      This demonstrates that 'signature valid != token valid'.
+    VULNERABLE JWT VALIDATION (Kept for educational reference)
+    Omits verify_exp, verify_iss, and verify_aud.
     """
-    logger.info("Executing decode_token_vulnerable: verify_exp=False")
     return jwt.decode(
         token,
         settings.JWT_SECRET,
         algorithms=[settings.JWT_ALGORITHM],
         options={
             "verify_signature": True,
-            "verify_exp": False,  # <--- DELIBERATE FLAW: Ignores expiration!
-            "verify_iss": False,  # <--- Ignores issuer!
-            "verify_aud": False,  # <--- Ignores audience!
+            "verify_exp": False,
+            "verify_iss": False,
+            "verify_aud": False,
         },
     )
 
 def decode_token_secure(token: str) -> dict:
     """
-    SECURE JWT VALIDATION
+    SECURE JWT VALIDATION (Remediated)
     
-    Strictly validates:
-      1. Cryptographic signature with trusted SECRET_KEY
-      2. Pinned algorithm (HS256) - prevents algorithm switching attacks
-      3. Token expiration timestamp ('exp')
-      4. Expected issuer ('iss')
-      5. Expected audience ('aud')
-      6. Required presence of essential claims
+    Enforces defense-in-depth:
+      1. Cryptographic HMAC signature check using server SECRET_KEY.
+      2. Pinned algorithm whitelist [settings.JWT_ALGORITHM] ('HS256') - prevents algorithm confusion.
+      3. Expiration verification ('exp'): Expired tokens are rejected.
+      4. Issuer verification ('iss'): Rejects tokens issued by third parties.
+      5. Audience verification ('aud'): Rejects tokens targeted for other client applications.
+      6. Required claims: Rejects tokens missing essential fields.
     """
-    logger.info("Executing decode_token_secure: full claims and exp validation")
     return jwt.decode(
         token,
         settings.JWT_SECRET,
@@ -90,8 +86,8 @@ def decode_token_secure(token: str) -> dict:
         },
     )
 
-# Active decoder in vulnerable version
-decode_token = decode_token_vulnerable
+# ACTIVE IMPLEMENTATION: Strict validation
+decode_token = decode_token_secure
 
 def get_current_user(
     request: Request,
@@ -152,7 +148,7 @@ def get_current_user(
 def require_admin(current_user: dict = None) -> dict:
     """
     Authorization dependency.
-    Separates Authentication (who you are) from Authorization (what you are allowed to do).
+    Enforces Role-Based Access Control (RBAC).
     """
     if not current_user or current_user.get("role") != "admin":
         raise HTTPException(
