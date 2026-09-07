@@ -6,3 +6,8 @@ __pycache__/
 .coverage
 htmlcov/
 .env
+
+# Ignore generated documentation files and scratch scripts
+*.pdf
+generate_pdf.py
+scratch/
