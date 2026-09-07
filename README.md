@@ -359,12 +359,17 @@ flowchart LR
 RUN groupadd -g 10001 appgroup && \
     useradd -u 10001 -g appgroup -s /sbin/nologin -d /app -m appuser
 
-# Archivo confidencial de prueba protegido para root (0600)
-RUN echo "FLAG{defense_in_depth_least_privilege_2026}" > /root/flag.txt && \
-    chmod 0600 /root/flag.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 RUN chown -R appuser:appgroup /app
+
+# Archivo confidencial de prueba protegido en ~ con permisos exclusivos de root (0600)
+RUN echo "FLAG{defense_in_depth_least_privilege_2026}" > /app/flag.txt && \
+    echo "FLAG{defense_in_depth_least_privilege_2026}" > /root/flag.txt && \
+    chown root:root /app/flag.txt /root/flag.txt && \
+    chmod 0600 /app/flag.txt /root/flag.txt
 
 # SEGURO 2: Cambio explícito de contexto al usuario no privilegiado
 USER appuser
@@ -440,8 +445,8 @@ flowchart LR
 
 ### Paso 4: Impacto del Proceso como Root y Archivo Confidencial
 1. Resaltar la línea `uid=0(root)` obtenida en el paso anterior.
-2. Al ejecutar como `root`, los archivos protegidos como el archivo sensible en `/root/flag.txt` (permisos `0600`) quedan expuestos a lectura directa.
-3. Mostrar el [`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile) sin directiva `USER`.
+2. Al ejecutar como `root`, los archivos protegidos como el archivo sensible en `~/flag.txt` (`/app/flag.txt`, permisos `0600`) quedan expuestos a lectura directa por ser propiedad de `root`.
+3. Mostrar el [`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile) original sin directiva `USER`.
 
 ### Paso 5: Cambio a la Versión Corregida
 1. Cambiar a la rama corregida:

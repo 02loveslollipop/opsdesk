@@ -11,3 +11,4 @@ htmlcov/
 *.pdf
 generate_pdf.py
 scratch/
+flag.txt
