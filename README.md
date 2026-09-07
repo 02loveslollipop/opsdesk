@@ -359,6 +359,10 @@ flowchart LR
 RUN groupadd -g 10001 appgroup && \
     useradd -u 10001 -g appgroup -s /sbin/nologin -d /app -m appuser
 
+# Archivo confidencial de prueba protegido para root (0600)
+RUN echo "FLAG{defense_in_depth_least_privilege_2026}" > /root/flag.txt && \
+    chmod 0600 /root/flag.txt
+
 COPY . .
 RUN chown -R appuser:appgroup /app
 
@@ -423,32 +427,33 @@ flowchart LR
 
 ### Paso 2: Validación Incorrecta de JWT
 1. En `/dashboard`, señalar el visor interactivo de claims del JWT.
-2. Ejecutar la prueba de token caducado:
+2. Probar el envío de un token caducado emitido en el pasado:
    ```bash
-   make demo-jwt
+   python3 -c "import jwt, urllib.request; token = jwt.encode({'sub':'1','username':'alice','role':'user','iss':'opsdesk','aud':'opsdesk-web','exp':1000000000}, 'opsdesk-insecure-presentation-secret-key-2026-minimum-32-chars-ok', algorithm='HS256'); print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/profile', headers={'Authorization': f'Bearer {token}'})).read().decode())"
    ```
-3. El servidor acepta el token con código **200 OK**, demostrando que `verify_exp=False` es inseguro.
+3. En la versión vulnerable, el servidor acepta el token con código **200 OK**, demostrando que `verify_exp=False` es inseguro.
 
 ### Paso 3: Command Injection
 1. Acceder a `/admin/diagnostics`.
 2. Introducir `127.0.0.1; id` y pulsar **Ping**.
 3. Se muestra la salida del comando del sistema operativo en el navegador.
 
-### Paso 4: Impacto del Proceso como Root
+### Paso 4: Impacto del Proceso como Root y Archivo Confidencial
 1. Resaltar la línea `uid=0(root)` obtenida en el paso anterior.
-2. Mostrar el [`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile) sin directiva `USER`.
+2. Al ejecutar como `root`, los archivos protegidos como el archivo sensible en `/root/flag.txt` (permisos `0600`) quedan expuestos a lectura directa.
+3. Mostrar el [`Dockerfile`](file:///home/zerotwo/security_presentation_example/Dockerfile) sin directiva `USER`.
 
 ### Paso 5: Cambio a la Versión Corregida
 1. Cambiar a la rama corregida:
    ```bash
    git checkout 02-fixed
-   docker compose down -v && docker compose up -d
+   docker compose down -v && docker compose up -d --build
    ```
 2. Repetir exactamente cada prueba anterior:
    - `admin' --` en el login &rarr; **401 Unauthorized** (consulta parametrizada).
-   - `make demo-jwt` &rarr; **401 Unauthorized** (token caducado rechazado).
+   - Token caducado &rarr; **401 Unauthorized** (token caducado rechazado).
    - `127.0.0.1; id` en diagnósticos &rarr; **400 Bad Request** (validación de host y `shell=False`).
-   - El contenedor corre con UID `10001(appuser)`.
+   - El contenedor corre con UID `10001(appuser)`. Incluso si se intentase acceder a `/root/flag.txt`, el sistema operativo deniega el acceso (`Permission denied`) gracias al principio de menor privilegio.
 
 ---
 

@@ -11,6 +11,10 @@ RUN apt-get update && \
 RUN groupadd -g 10001 appgroup && \
     useradd -u 10001 -g appgroup -s /sbin/nologin -d /app -m appuser
 
+# Place mock sensitive flag readable only by root (UID 0)
+RUN echo "FLAG{defense_in_depth_least_privilege_2026}" > /root/flag.txt && \
+    chmod 0600 /root/flag.txt
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
