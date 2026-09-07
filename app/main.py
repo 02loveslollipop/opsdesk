@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.database import init_db
 from app.auth import router as auth_router
 from app.tickets import router as tickets_router
+from app.admin import router as admin_router
 from app.security import RedirectToLoginException
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ async def redirect_to_login_handler(request: Request, exc: RedirectToLoginExcept
 # Include Routers
 app.include_router(auth_router)
 app.include_router(tickets_router)
+app.include_router(admin_router)
 
 @app.get("/")
 def root():
