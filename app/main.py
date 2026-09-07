@@ -4,6 +4,8 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.database import init_db
 from app.auth import router as auth_router
+from app.tickets import router as tickets_router
+from app.security import RedirectToLoginException
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -20,8 +22,13 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Include Authentication routes
+@app.exception_handler(RedirectToLoginException)
+async def redirect_to_login_handler(request: Request, exc: RedirectToLoginException):
+    return RedirectResponse(url="/login", status_code=303)
+
+# Include Routers
 app.include_router(auth_router)
+app.include_router(tickets_router)
 
 @app.get("/")
 def root():
