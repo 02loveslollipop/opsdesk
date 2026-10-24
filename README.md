@@ -1,7 +1,7 @@
 # OpsDesk — Laboratorio de Secure Coding
 
 > [!CAUTION]
-> ### ⚠️ ADVERTENCIA: APLICACIÓN DELIBERADAMENTE VULNERABLE
+> ### ADVERTENCIA: APLICACIÓN DELIBERADAMENTE VULNERABLE
 > Este repositorio contiene código vulnerable con fines **estrictamente educativos y de demostración**.
 >
 > **REGLAS FUNDAMENTALES DE SEGURIDAD:**
